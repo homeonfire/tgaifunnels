@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\FunnelController;
 use App\Http\Controllers\Api\BotController;
 use App\Http\Controllers\Api\AiKeyController;
+use App\Http\Controllers\Api\SimulatorController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -20,3 +21,4 @@ Route::apiResource('bots', BotController::class);
 Route::get('ai-keys/{id}/models', [\App\Http\Controllers\Api\AiKeyController::class, 'getModels']);
 Route::apiResource('ai-keys', AiKeyController::class);
 
+Route::post('/simulator/chat', [SimulatorController::class, 'chat']);

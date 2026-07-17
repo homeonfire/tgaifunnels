@@ -1,4 +1,5 @@
-<?
+<?php
+
 namespace App\Services;
 
 use App\Models\Step;
@@ -53,7 +54,7 @@ class AiRouterService
             $response = Http::withToken($apiKey)
                 ->timeout(30)
                 ->post("{$this->baseUrl}/chat/completions", [
-                    'model' => 'deepseek-chat',
+                    'model' => $bot->ai_model ?: 'deepseek-chat', // Берем модель из настроек бота
                     'messages' => $messages,
                     'response_format' => ['type' => 'json_object'],
                     'temperature' => 0.3,

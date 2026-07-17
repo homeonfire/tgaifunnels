@@ -25,10 +25,14 @@
         Интеграции
       </router-link>
 
-      <!-- Настройки -->
-      <a href="#" class="block px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors">
-        Настройки
-      </a>
+      <!-- Боты -->
+      <router-link 
+        to="/bots" 
+        class="block px-4 py-2 rounded-lg transition-colors"
+        :class="$route.path.startsWith('/bots') ? 'bg-blue-50 text-blue-600 dark:bg-slate-700 dark:text-white font-medium' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700'"
+      >
+        Боты
+      </router-link>
     </nav>
   </aside>
 </template>

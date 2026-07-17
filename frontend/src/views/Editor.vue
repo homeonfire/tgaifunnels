@@ -197,6 +197,56 @@ const saveSettingsAndClose = async () => {
   await saveFunnel()
 }
 
+// --- ЛОГИКА ЭМУЛЯТОРА (СИМУЛЯТОР ЧАТА) ---
+const isSimulatorOpen = ref(false)
+const simulatorMessages = ref([])
+const simulatorInput = ref('')
+const isSimulating = ref(false)
+// Генерируем случайный ID для текущей тестовой сессии
+const simulatorClientId = ref('sim_' + Math.random().toString(36).substr(2, 9))
+
+const toggleSimulator = () => {
+  if (!funnelBotId.value) {
+    alert('Сначала привяжите бота в настройках воронки и сохраните её!')
+    return
+  }
+  isSimulatorOpen.value = !isSimulatorOpen.value
+  // Если открыли и чат пустой, можно добавить приветствие
+  if (isSimulatorOpen.value && simulatorMessages.value.length === 0) {
+    simulatorMessages.value.push({ role: 'bot', text: 'Эмулятор запущен. Напишите сообщение...' })
+  }
+}
+
+const sendSimulatorMessage = async () => {
+  if (!simulatorInput.value.trim() || isSimulating.value) return
+
+  const userText = simulatorInput.value
+  simulatorMessages.value.push({ role: 'user', text: userText })
+  simulatorInput.value = ''
+  isSimulating.value = true
+
+  try {
+    const { data } = await api.post('/simulator/chat', {
+      bot_id: funnelBotId.value,
+      client_id: simulatorClientId.value,
+      message: userText
+    })
+
+    simulatorMessages.value.push({ role: 'bot', text: data.reply })
+  } catch (error) {
+    console.error('Ошибка симулятора:', error)
+    simulatorMessages.value.push({ role: 'bot', text: '❌ Ошибка ответа сервера.' })
+  } finally {
+    isSimulating.value = false
+  }
+}
+
+const resetSimulator = () => {
+  simulatorMessages.value = []
+  simulatorClientId.value = 'sim_' + Math.random().toString(36).substr(2, 9)
+  simulatorMessages.value.push({ role: 'bot', text: 'Сессия сброшена. Вы снова на стартовом шаге.' })
+}
+
 onMounted(() => {
   loadFunnel()
   fetchBots() // <-- Загружаем ботов при открытии редактора
@@ -258,12 +308,14 @@ const goBack = () => router.push('/')
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
           </svg>
         </button>
-
-        <button class="px-4 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center">
-          <svg class="w-4 h-4 mr-1.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
-          </svg>
-          Тестировать
+        <!-- Кнопка тестирования -->
+        <!-- Кнопка тестирования -->
+        <button 
+          @click="toggleSimulator" 
+          class="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          Тест воронки
         </button>
         <button 
           @click="saveFunnel"
@@ -383,6 +435,63 @@ const goBack = () => router.push('/')
           </button>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ЭМУЛЯТОР ЧАТА (ОКНО) -->
+    <div 
+      v-if="isSimulatorOpen" 
+      class="fixed bottom-6 right-6 w-80 md:w-96 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col z-50 overflow-hidden transition-all"
+      style="height: 500px;"
+    >
+      <!-- Шапка чата -->
+      <div class="bg-indigo-500 p-4 flex justify-between items-center text-white">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🤖</span>
+          <div>
+            <h3 class="font-bold text-sm">Симулятор</h3>
+            <p class="text-[10px] text-indigo-100 opacity-80">Test Client: {{ simulatorClientId.substring(0,8) }}...</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="resetSimulator" class="p-1 hover:bg-indigo-600 rounded text-xs" title="Сбросить сессию">🔄</button>
+          <button @click="isSimulatorOpen = false" class="p-1 hover:bg-indigo-600 rounded text-xs" title="Закрыть">✖</button>
+        </div>
+      </div>
+
+      <!-- Сообщения -->
+      <div class="flex-1 p-4 overflow-y-auto bg-slate-50 dark:bg-slate-900 flex flex-col gap-3">
+        <div 
+          v-for="(msg, idx) in simulatorMessages" 
+          :key="idx" 
+          class="max-w-[85%] rounded-xl px-3 py-2 text-sm shadow-sm"
+          :class="msg.role === 'user' ? 'bg-blue-500 text-white self-end rounded-tr-none' : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 self-start rounded-tl-none border border-slate-100 dark:border-slate-600'"
+        >
+          {{ msg.text }}
+        </div>
+        
+        <div v-if="isSimulating" class="text-xs text-slate-400 italic self-start mt-2 animate-pulse">
+          Нейросеть печатает...
+        </div>
+      </div>
+
+      <!-- Поле ввода -->
+      <div class="p-3 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex gap-2">
+        <input 
+          v-model="simulatorInput" 
+          @keyup.enter="sendSimulatorMessage"
+          type="text" 
+          placeholder="Напишите сообщение..." 
+          class="flex-1 px-3 py-2 bg-slate-100 dark:bg-slate-900 border-none rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+          :disabled="isSimulating"
+        />
+        <button 
+          @click="sendSimulatorMessage"
+          :disabled="isSimulating || !simulatorInput.trim()"
+          class="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white p-2 rounded-lg transition-colors"
+        >
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+        </button>
       </div>
     </div>
 </template>

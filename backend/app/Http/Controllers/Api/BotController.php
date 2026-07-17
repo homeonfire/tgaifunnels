@@ -16,14 +16,14 @@ class BotController extends Controller
 
     public function store(Request $request)
     {
-        $bot = Bot::create($request->only(['name', 'telegram_token', 'ai_key_id']));
+        $bot = Bot::create($request->only(['name', 'telegram_token', 'ai_key_id', 'ai_model']));
         return response()->json($bot->load('aiKey'), 201);
     }
 
     public function update(Request $request, $id)
     {
         $bot = Bot::findOrFail($id);
-        $bot->update($request->only(['name', 'telegram_token', 'ai_key_id']));
+        $bot->update($request->only(['name', 'telegram_token', 'ai_key_id', 'ai_model']));
         return response()->json($bot->load('aiKey'));
     }
 
