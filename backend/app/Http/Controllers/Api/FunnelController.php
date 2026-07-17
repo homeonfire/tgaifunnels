@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Funnel;
 use App\Models\Transition; // <-- Не забудь добавить этот импорт
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class FunnelController extends Controller
 {
@@ -35,23 +36,36 @@ class FunnelController extends Controller
     }
 
     // НОВЫЙ МЕТОД: Сохранение всей схемы холста
-    public function updateSchema(Request $request, $id)
-    {
-        $funnel = Funnel::findOrFail($id);
+public function updateSchema(Request $request, $id)
+{
+    $funnel = Funnel::findOrFail($id);
+    
+    DB::transaction(function () use ($funnel, $request) {
         
         // 1. Обновляем основные данные воронки
         $funnel->update([
             'name' => $request->input('name'),
             'is_active' => $request->input('is_active'),
-            'bot_id' => $request->input('bot_id'), // <-- ДОБАВИЛИ ЭТУ СТРОЧКУ
+            'bot_id' => $request->input('bot_id'),
         ]);
 
-        // 2. Обновляем узлы (Шаги)
-        // Для простоты сейчас мы просто удаляем старые и записываем новые. 
-        // В продакшене лучше делать upsert, чтобы не ломать статистику, но для старта это идеально.
-        $funnel->steps()->delete(); 
+        // 2. Получаем ID всех текущих шагов
+        $currentStepIds = $funnel->steps()->pluck('id');
+
+        if ($currentStepIds->isNotEmpty()) {
+            // ПРЯМОЕ УДАЛЕНИЕ: Сначала удаляем все связи, 
+            // где 'from' ИЛИ 'to' ссылается на наши шаги.
+            // Это обходит ограничения внешних ключей.
+            Transition::whereIn('from_step_id', $currentStepIds)
+                ->orWhereIn('to_step_id', $currentStepIds)
+                ->delete();
+
+            // Теперь, когда связи удалены, шаги можно удалять без ошибок
+            $funnel->steps()->delete();
+        }
         
-        $stepIdMapping = []; // Массив для подмены временных ID с фронта на реальные ID базы
+        // 3. Создаем новые шаги
+        $stepIdMapping = []; 
 
         foreach ($request->input('nodes', []) as $node) {
             $step = $funnel->steps()->create([
@@ -61,30 +75,31 @@ class FunnelController extends Controller
                 'ai_prompt' => $node['data']['aiPrompt'] ?? '',
                 'pos_x' => $node['position']['x'],
                 'pos_y' => $node['position']['y'],
+                'handles' => $node['data']['handles'] ?? null,
+                'extracted_variables' => $node['data']['extractedVariables'] ?? null,
             ]);
             
-            // Запоминаем, какой ID (например 'temp_123') превратился в реальный ID (например 15)
             $stepIdMapping[$node['id']] = $step->id; 
         }
 
-        // 3. Обновляем связи (Переходы)
-        $stepIds = $funnel->steps->pluck('id');
-        Transition::whereIn('from_step_id', $stepIds)->delete(); // Удаляем старые связи
-
+        // 4. Создаем новые связи
         foreach ($request->input('edges', []) as $edge) {
-            // Ищем реальные ID в нашем маппинге (или оставляем как есть, если они не менялись)
-            $fromId = $stepIdMapping[$edge['source']] ?? $edge['source'];
-            $toId = $stepIdMapping[$edge['target']] ?? $edge['target'];
+            $fromId = $stepIdMapping[$edge['source']] ?? null;
+            $toId = $stepIdMapping[$edge['target']] ?? null;
 
-            Transition::create([
-                'from_step_id' => $fromId,
-                'to_step_id' => $toId,
-                'source_handle' => $edge['sourceHandle'] ?? 'default',
-            ]);
+            // Если оба ID существуют (шаги были успешно созданы)
+            if ($fromId && $toId) {
+                Transition::create([
+                    'from_step_id' => $fromId,
+                    'to_step_id' => $toId,
+                    'source_handle' => $edge['sourceHandle'] ?? 'default',
+                ]);
+            }
         }
+    });
 
-        return response()->json(['message' => 'Схема успешно сохранена']);
-    }
+    return response()->json(['message' => 'Схема успешно сохранена']);
+}
 
     // НОВЫЙ МЕТОД: Создание пустой воронки
     public function store(Request $request)

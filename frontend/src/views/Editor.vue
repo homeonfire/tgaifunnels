@@ -51,7 +51,7 @@ const loadFunnel = async () => {
 
     // 2. Мапим шаги из БД в узлы Vue Flow (Nodes)
     nodes.value = data.funnel.steps.map(step => ({
-      id: step.id.toString(), // Vue Flow требует ID в виде строки
+      id: step.id.toString(),
       type: 'funnelNode',
       position: { x: step.pos_x, y: step.pos_y },
       data: { 
@@ -59,10 +59,11 @@ const loadFunnel = async () => {
         description: step.message_text || '',
         useAi: step.use_ai,
         aiPrompt: step.ai_prompt || '',
-        // Заглушка для выходов (позже мы научимся брать их из JSON)
-        handles: step.use_ai 
-          ? [{ id: 'ready', label: 'Клиент готов' }, { id: 'not_ready', label: 'Не готов' }] 
-          : [{ id: 'default', label: 'Далее' }]
+        handles: step.handles && step.handles.length > 0 
+          ? step.handles 
+          : [{ id: 'default', label: 'Далее', rules: [] }],
+        // Подтягиваем переменные из базы или ставим пустой массив
+        extractedVariables: step.extracted_variables || [] 
       }
     }))
 
