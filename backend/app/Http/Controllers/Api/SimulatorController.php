@@ -29,6 +29,14 @@ class SimulatorController extends Controller
             $request->input('message')
         );
 
-        return response()->json(['reply' => $reply]);
+        // Достаем актуальный ID шага после обработки сообщения
+        // Достаем актуальный ID шага
+        $session = \App\Models\ChatSession::where('bot_id', $request->bot_id)
+                    ->where('client_id', $request->client_id)->first();
+
+        return response()->json([
+            'reply' => $reply,
+            'current_step_id' => $session ? $session->current_step_id : null
+        ]);
     }
 }

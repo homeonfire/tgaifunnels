@@ -78,21 +78,22 @@ class FunnelEngine
             }
         }
 
-        // 7. Переход на следующий этап с проверкой условий
+        // 7. Переход на следующий этап
         if ($isStepCompleted) {
             $transitions = Transition::where('from_step_id', $currentStep->id)->get();
             
+            // ЛОГ ДЛЯ ОТЛАДКИ: сколько стрелок мы нашли?
+            Log::info("Engine: Ищем переходы для шага {$currentStep->id}. Найдено: " . $transitions->count());
+            
             foreach ($transitions as $transition) {
+                Log::info("Engine: Проверяем переход к шагу {$transition->to_step_id}. Условия: " . json_encode($transition->conditions));
+                
                 if ($transition->isEligible($currentData)) {
-                    // Переключаем сессию на новый этап
+                    Log::info("Engine: Условие подошло! Переходим к {$transition->to_step_id}");
+                    
                     $session->update(['current_step_id' => $transition->to_step_id]);
                     
-                    // --- МАГИЯ АВТОМАТИЧЕСКОГО ПЕРЕХОДА ---
-                    // Получаем новый шаг
                     $nextStep = $session->fresh()->currentStep; 
-                    
-                    // Спрашиваем ИИ, что сказать на этом НОВОМ шаге (сообщение пустое, 
-                    // так как юзер еще ничего не сказал для этого этапа)
                     $nextStepAiResponse = $this->aiService->processMessage($nextStep, "Приветствие", $session->user_data);
                     
                     return $nextStepAiResponse['reply']; 

@@ -29,6 +29,9 @@ const contextMenu = ref({ show: false, x: 0, y: 0, canvasX: 0, canvasY: 0 })
 const nodes = ref([])
 const edges = ref([])
 
+// ID активного узла
+const activeStepId = ref(null) 
+
 // Функция загрузки списка ботов
 const fetchBots = async () => {
   try {
@@ -102,6 +105,7 @@ const showToast = (message, type = 'success') => {
 
 const saveFunnel = async () => {
   isSaving.value = true
+  console.log("Данные, которые улетают на сервер:", edges.value);
   try {
     await api.post(`/funnels/${funnelId}/schema`, {
       name: funnelName.value,
@@ -233,6 +237,7 @@ const sendSimulatorMessage = async () => {
     })
 
     simulatorMessages.value.push({ role: 'bot', text: data.reply })
+    activeStepId.value = data.current_step_id ? data.current_step_id.toString() : null
   } catch (error) {
     console.error('Ошибка симулятора:', error)
     simulatorMessages.value.push({ role: 'bot', text: '❌ Ошибка ответа сервера.' })
@@ -243,8 +248,13 @@ const sendSimulatorMessage = async () => {
 
 const resetSimulator = () => {
   simulatorMessages.value = []
+  activeStepId.value = null // Сбрасываем подсветку
   simulatorClientId.value = 'sim_' + Math.random().toString(36).substr(2, 9)
-  simulatorMessages.value.push({ role: 'bot', text: 'Сессия сброшена. Вы снова на стартовом шаге.' })
+  simulatorMessages.value.push({ role: 'bot', text: 'Сессия сброшена.' })
+}
+
+const getNodeClass = (node) => {
+  return node.id === activeStepId.value ? 'active-node-highlight' : ''
 }
 
 onMounted(() => {
@@ -334,6 +344,7 @@ const goBack = () => router.push('/')
         :fit-view-on-init="true"
         :max-zoom="1"
         :min-zoom="0.2"
+        :node-class="getNodeClass"
         @node-click="onNodeClick"
         @pane-click="onPaneClick"
         @pane-context-menu="onPaneContextMenu"
@@ -497,6 +508,11 @@ const goBack = () => router.push('/')
 </template>
 
 <style scoped>
+.active-node-highlight {
+  outline: 2px solid #3b82f6 !important;
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.5) !important;
+  border-radius: 8px;
+}
 .animate-fade-in {
   animation: fadeIn 0.15s ease-out;
 }

@@ -93,6 +93,7 @@ public function updateSchema(Request $request, $id)
                     'from_step_id' => $fromId,
                     'to_step_id' => $toId,
                     'source_handle' => $edge['sourceHandle'] ?? 'default',
+                    'conditions' => $edge['conditions'] ?? null,
                 ]);
             }
         }
