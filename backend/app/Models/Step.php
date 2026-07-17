@@ -6,5 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class Step extends Model
 {
-    protected $guarded = []; // Разрешаем массовое заполнение
+    // Отключаем защиту, чтобы можно было сохранять любые поля
+    protected $guarded = []; 
+
+    public function funnel()
+    {
+        return $this->belongsTo(Funnel::class);
+    }
 }
