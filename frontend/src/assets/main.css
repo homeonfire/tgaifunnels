@@ -1,8 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Подключаем базовые стили Vue Flow */
+/* СНАЧАЛА импорты библиотек */
 @import '@vue-flow/core/dist/style.css';
 @import '@vue-flow/core/dist/theme-default.css';
 @import '@vue-flow/controls/dist/style.css';
+
+/* ЗАТЕМ директивы Tailwind */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
