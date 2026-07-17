@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { api } from '../api'
+import Sidebar from '../components/Sidebar.vue'
 
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
@@ -57,14 +58,7 @@ const openEditor = (id) => {
   <div class="min-h-screen bg-slate-50 dark:bg-slate-900 flex">
     
     <!-- Боковое меню навигации (Sidebar) -->
-    <aside class="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 p-6">
-      <div class="text-2xl font-bold text-slate-800 dark:text-white mb-8">AI Funnels</div>
-      <nav class="space-y-2">
-        <a href="#" class="block px-4 py-2 rounded-lg bg-blue-50 text-blue-600 dark:bg-slate-700 dark:text-white font-medium">Воронки</a>
-        <a href="#" class="block px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors">Боты</a>
-        <a href="#" class="block px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors">Настройки</a>
-      </nav>
-    </aside>
+    <Sidebar />
 
     <!-- Главная рабочая область -->
     <main class="flex-1 p-8">

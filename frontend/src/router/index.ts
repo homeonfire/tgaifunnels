@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import Integrations from '../views/Integrations.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -12,6 +13,11 @@ const router = createRouter({
       path: '/editor/:id',
       name: 'editor',
       component: () => import('../views/Editor.vue')
+    },
+    {
+      path: '/integrations',
+      name: 'Integrations',
+      component: Integrations
     }
   ]
 })
