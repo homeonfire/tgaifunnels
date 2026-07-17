@@ -105,24 +105,47 @@ const showToast = (message, type = 'success') => {
 
 const saveFunnel = async () => {
   isSaving.value = true
-  console.log("Данные, которые улетают на сервер:", edges.value);
+
+  // Мапим связи и автоматически вытаскиваем условия из ручек ноды
+  const enrichedEdges = edges.value.map(edge => {
+    // 1. Ищем ноду-источник, от которой тянется эта стрелка
+    const sourceNode = nodes.value.find(n => n.id === edge.source)
+    
+    let conditions = null
+
+    if (sourceNode && sourceNode.data && sourceNode.data.handles) {
+      // 2. Ищем конкретную ручку (ветку) внутри этой ноды по ID
+      const matchingHandle = sourceNode.data.handles.find(h => h.id === edge.sourceHandle)
+      
+      // 3. Если нашли ручку и в ней есть правила/условия, забираем их
+      if (matchingHandle && matchingHandle.rules) {
+        conditions = matchingHandle.rules
+      }
+    }
+
+    // Возвращаем объект связи со всеми дефолтными полями + поле conditions для БД
+    return {
+      ...edge,
+      conditions: conditions
+    }
+  })
+
+  console.log("Данные с условиями, которые улетают на сервер:", enrichedEdges)
+
   try {
     await api.post(`/funnels/${funnelId}/schema`, {
       name: funnelName.value,
       is_active: isActive.value,
       bot_id: funnelBotId.value,
       nodes: nodes.value,
-      edges: edges.value
+      edges: enrichedEdges // <-- Отправляем обогащенные связи с условиями!
     })
     
-    // Заменили алерт!
     showToast('Схема успешно сохранена!')
-    
     await loadFunnel() 
     
   } catch (error) {
     console.error('Ошибка при сохранении:', error)
-    // Заменили алерт!
     showToast('Ошибка при сохранении схемы', 'error')
   } finally {
     isSaving.value = false
