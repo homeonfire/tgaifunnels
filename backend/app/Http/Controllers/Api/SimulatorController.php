@@ -18,21 +18,22 @@ class SimulatorController extends Controller
     public function chat(Request $request)
     {
         $request->validate([
-            'bot_id' => 'required|integer',
+            'funnel_id' => 'required|integer', // <-- Теперь требуем ID воронки
+            'bot_id' => 'nullable|integer',    // Оставим для совместимости сессий
             'client_id' => 'required|string',
             'message' => 'required|string',
         ]);
 
+        // Передаем funnel_id в движок вместо bot_id
         $reply = $this->engine->handleMessage(
-            $request->input('bot_id'),
+            $request->input('funnel_id'), 
             $request->input('client_id'),
             $request->input('message')
         );
 
-        // Достаем актуальный ID шага после обработки сообщения
-        // Достаем актуальный ID шага
-        $session = \App\Models\ChatSession::where('bot_id', $request->bot_id)
-                    ->where('client_id', $request->client_id)->first();
+        // client_id уникален для каждого запуска симулятора (ты генеришь его через Math.random)
+        // Поэтому искать сессию можно просто по нему
+        $session = \App\Models\ChatSession::where('client_id', $request->client_id)->first();
 
         return response()->json([
             'reply' => $reply,

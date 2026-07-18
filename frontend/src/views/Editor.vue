@@ -106,31 +106,26 @@ const showToast = (message, type = 'success') => {
 const saveFunnel = async () => {
   isSaving.value = true
 
-  // Мапим связи и автоматически вытаскиваем условия из ручек ноды
   const enrichedEdges = edges.value.map(edge => {
-    // 1. Ищем ноду-источник, от которой тянется эта стрелка
     const sourceNode = nodes.value.find(n => n.id === edge.source)
-    
     let conditions = null
 
-    if (sourceNode && sourceNode.data && sourceNode.data.handles) {
-      // 2. Ищем конкретную ручку (ветку) внутри этой ноды по ID
+    // Ищем ручку и достаем из неё условия (проверяем оба ключа на всякий случай)
+    if (sourceNode?.data?.handles) {
       const matchingHandle = sourceNode.data.handles.find(h => h.id === edge.sourceHandle)
-      
-      // 3. Если нашли ручку и в ней есть правила/условия, забираем их
-      if (matchingHandle && matchingHandle.rules) {
-        conditions = matchingHandle.rules
+      if (matchingHandle) {
+        conditions = matchingHandle.conditions || matchingHandle.rules || null
       }
     }
 
-    // Возвращаем объект связи со всеми дефолтными полями + поле conditions для БД
     return {
       ...edge,
       conditions: conditions
     }
   })
 
-  console.log("Данные с условиями, которые улетают на сервер:", enrichedEdges)
+  // ВЫВОДИМ В КОНСОЛЬ БРАУЗЕРА ПЕРЕД ОТПРАВКОЙ
+  console.log('Связи перед отправкой в БД:', enrichedEdges)
 
   try {
     await api.post(`/funnels/${funnelId}/schema`, {
@@ -138,7 +133,7 @@ const saveFunnel = async () => {
       is_active: isActive.value,
       bot_id: funnelBotId.value,
       nodes: nodes.value,
-      edges: enrichedEdges // <-- Отправляем обогащенные связи с условиями!
+      edges: enrichedEdges // Отправляем обогащенные связи
     })
     
     showToast('Схема успешно сохранена!')
@@ -254,13 +249,25 @@ const sendSimulatorMessage = async () => {
 
   try {
     const { data } = await api.post('/simulator/chat', {
+      funnel_id: funnelId, // <--- ДОБАВЛЯЕМ ЭТУ СТРОКУ
       bot_id: funnelBotId.value,
       client_id: simulatorClientId.value,
       message: userText
     })
 
+    console.log('Бэкенд вернул ID текущего шага:', data.current_step_id)
+
     simulatorMessages.value.push({ role: 'bot', text: data.reply })
     activeStepId.value = data.current_step_id ? data.current_step_id.toString() : null
+
+    // ВОТ ЭТОТ БЛОК ЗАСТАВЛЯЕТ VUE FLOW ПЕРЕРИСОВАТЬ КЛАССЫ:
+    nodes.value = nodes.value.map(node => {
+      return {
+        ...node,
+        class: node.id === activeStepId.value ? 'active-node-highlight' : ''
+      }
+    })
+
   } catch (error) {
     console.error('Ошибка симулятора:', error)
     simulatorMessages.value.push({ role: 'bot', text: '❌ Ошибка ответа сервера.' })
@@ -274,6 +281,7 @@ const resetSimulator = () => {
   activeStepId.value = null // Сбрасываем подсветку
   simulatorClientId.value = 'sim_' + Math.random().toString(36).substr(2, 9)
   simulatorMessages.value.push({ role: 'bot', text: 'Сессия сброшена.' })
+  nodes.value = nodes.value.map(node => ({ ...node, class: '' }))
 }
 
 const getNodeClass = (node) => {
@@ -530,12 +538,15 @@ const goBack = () => router.push('/')
     </div>
 </template>
 
-<style scoped>
+<style>
 .active-node-highlight {
   outline: 2px solid #3b82f6 !important;
   box-shadow: 0 0 15px rgba(59, 130, 246, 0.5) !important;
   border-radius: 8px;
 }
+</style>
+
+<style scoped>
 .animate-fade-in {
   animation: fadeIn 0.15s ease-out;
 }

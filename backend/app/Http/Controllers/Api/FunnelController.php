@@ -49,45 +49,67 @@ public function updateSchema(Request $request, $id)
             'bot_id' => $request->input('bot_id'),
         ]);
 
-        // 2. Получаем ID всех текущих шагов
-        $currentStepIds = $funnel->steps()->pluck('id');
+        // 2. Получаем текущие шаги из БД, чтобы их обновлять, а не удалять
+        $existingSteps = $funnel->steps()->get()->keyBy('id');
+        $currentStepIds = $existingSteps->pluck('id');
 
+        // Удаляем ТОЛЬКО связи (edges). Пересоздавать связи безопасно, 
+        // так как они не привязаны к сессиям пользователей.
         if ($currentStepIds->isNotEmpty()) {
-            // ПРЯМОЕ УДАЛЕНИЕ: Сначала удаляем все связи, 
-            // где 'from' ИЛИ 'to' ссылается на наши шаги.
-            // Это обходит ограничения внешних ключей.
             Transition::whereIn('from_step_id', $currentStepIds)
                 ->orWhereIn('to_step_id', $currentStepIds)
                 ->delete();
-
-            // Теперь, когда связи удалены, шаги можно удалять без ошибок
-            $funnel->steps()->delete();
         }
         
-        // 3. Создаем новые шаги
+        // 3. Обновляем существующие шаги или создаем новые
         $stepIdMapping = []; 
+        $nodesToKeep = []; // Здесь будем хранить ID шагов, которые остались на холсте
 
         foreach ($request->input('nodes', []) as $node) {
-            $step = $funnel->steps()->create([
+            $frontId = $node['id'];
+            
+            $stepData = [
                 'name' => $node['data']['label'] ?? 'Новый шаг',
                 'message_text' => $node['data']['description'] ?? '',
-                'use_ai' => $node['data']['useAi'] ?? false,
-                'ai_prompt' => $node['data']['aiPrompt'] ?? '',
+                'use_ai' => $node['data']['useAi'] ?? true, 
+                'ai_prompt' => $node['data']['aiPrompt'] ?: ($node['data']['description'] ?? ''),
                 'pos_x' => $node['position']['x'],
                 'pos_y' => $node['position']['y'],
                 'handles' => $node['data']['handles'] ?? null,
                 'extracted_variables' => $node['data']['extractedVariables'] ?? null,
-            ]);
+            ];
+
+            // Если ID с фронта числовой и такой шаг уже есть в БД — ОБНОВЛЯЕМ его
+            if (is_numeric($frontId) && $existingSteps->has($frontId)) {
+                $step = $existingSteps[$frontId];
+                $step->update($stepData);
+            } else {
+                // Иначе (это совершенно новый узел, который ты вытянул на холст) — СОЗДАЕМ
+                $step = $funnel->steps()->create($stepData);
+            }
             
-            $stepIdMapping[$node['id']] = $step->id; 
+            $nodesToKeep[] = $step->id;
+            $stepIdMapping[$frontId] = $step->id; 
         }
 
-        // 4. Создаем новые связи
+        // 4. Удаляем только те шаги, которые ты реально удалил в редакторе (клавишей Delete)
+        $stepsToDelete = $currentStepIds->diff($nodesToKeep);
+        
+        if ($stepsToDelete->isNotEmpty()) {
+            // Мягкая защита сессий: если кто-то из клиентов завис на шаге, который ты удалил,
+            // мы сбрасываем его current_step_id в null. 
+            // При следующем сообщении FunnelEngine мягко перезапустит его с начала воронки.
+            \App\Models\ChatSession::whereIn('current_step_id', $stepsToDelete)
+                ->update(['current_step_id' => null]);
+                
+            $funnel->steps()->whereIn('id', $stepsToDelete)->delete();
+        }
+
+        // 5. Создаем новые связи
         foreach ($request->input('edges', []) as $edge) {
             $fromId = $stepIdMapping[$edge['source']] ?? null;
             $toId = $stepIdMapping[$edge['target']] ?? null;
 
-            // Если оба ID существуют (шаги были успешно созданы)
             if ($fromId && $toId) {
                 Transition::create([
                     'from_step_id' => $fromId,
@@ -99,7 +121,7 @@ public function updateSchema(Request $request, $id)
         }
     });
 
-    return response()->json(['message' => 'Схема успешно сохранена']);
+    return response()->json(['message' => 'Схема успешно сохранена без потери активных сессий']);
 }
 
     // НОВЫЙ МЕТОД: Создание пустой воронки

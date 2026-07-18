@@ -18,10 +18,10 @@ class FunnelEngine
         $this->aiService = $aiService;
     }
 
-    public function handleMessage(int $botId, string $clientId, string $message): string
+    public function handleMessage(int $funnelId, string $clientId, string $message): string
     {
         // 1. Ищем активную воронку
-        $funnel = Funnel::where('bot_id', $botId)->first();
+        $funnel = \App\Models\Funnel::findOrFail($funnelId);
         
         if (!$funnel) {
             Log::warning("Сообщение проигнорировано: нет активной воронки для бота {$botId}");
@@ -29,13 +29,19 @@ class FunnelEngine
         }
 
         // 2. Сессия
-        $session = ChatSession::firstOrCreate(
-            ['bot_id' => $botId, 'client_id' => $clientId],
-            ['funnel_id' => $funnel->id, 'user_data' => []]
+        $session = \App\Models\ChatSession::firstOrCreate(
+            ['client_id' => $clientId],
+            [
+                'funnel_id' => $funnel->id,  // <--- ВОТ ЭТА СТРОЧКА НУЖНА
+                'bot_id' => $funnel->bot_id, 
+                'user_data' => []
+            ]
         );
 
-        // 3. Установка первого шага
-        if (!$session->current_step_id) {
+        // 3. Установка первого шага ИЛИ сброс, если текущий шаг был удален при редактировании
+        // Добавили проверку !$session->currentStep
+        if (!$session->current_step_id || !$session->currentStep) { 
+            
             $firstStep = Step::where('funnel_id', $funnel->id)
                 ->whereNotIn('id', Transition::pluck('to_step_id'))
                 ->first();
@@ -44,14 +50,32 @@ class FunnelEngine
                 return "Ошибка воронки: Не найден стартовый этап.";
             }
 
-            $session->update(['current_step_id' => $firstStep->id]);
+            // Обновляем сессию: ставим новый стартовый шаг
+            $session->update([
+                'current_step_id' => $firstStep->id,
+                // Опционально: можно сбросить user_data, так как воронка началась заново
+                'user_data' => [] 
+            ]);
         }
 
+        // Теперь мы на 100% уверены, что шаг существует
         $currentStep = $session->currentStep;
 
         // 4. Отправляем запрос ИИ
+        // --- ЛОГИРУЕМ ТО, ЧТО ОТПРАВЛЯЕМ ---
+        \Illuminate\Support\Facades\Log::info("========== ЗАПРОС К ИИ ==========");
+        \Illuminate\Support\Facades\Log::info("Шаг ID: " . $currentStep->id);
+        \Illuminate\Support\Facades\Log::info("Промпт шага (ai_prompt): " . ($currentStep->ai_prompt ?: 'ПУСТО'));
+        \Illuminate\Support\Facades\Log::info("Сообщение юзера: " . $message);
+        \Illuminate\Support\Facades\Log::info("Текущие user_data: " . json_encode($session->user_data ?? [], JSON_UNESCAPED_UNICODE));
+
         $aiResponse = $this->aiService->processMessage($currentStep, $message, $session->user_data ?? []);
 
+        // --- ЛОГИРУЕМ ТО, ЧТО ВЕРНУЛОСЬ ---
+        \Illuminate\Support\Facades\Log::info("========== ОТВЕТ ОТ ИИ ==========");
+        \Illuminate\Support\Facades\Log::info("Сырой массив ответа: " . json_encode($aiResponse, JSON_UNESCAPED_UNICODE));
+        \Illuminate\Support\Facades\Log::info("=================================");
+        
         // 5. Безопасное сохранение переменных
         $currentData = $session->user_data ?? [];
         if (!empty($aiResponse['extracted_data'])) {
