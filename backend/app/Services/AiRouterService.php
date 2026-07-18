@@ -10,7 +10,7 @@ class AiRouterService
 {
     protected string $baseUrl = 'https://api.deepseek.com';
 
-    public function processMessage(Step $step, string $userMessage, array $currentSessionData = [])
+    public function processMessage(Step $step, string $userMessage, array $currentSessionData = [], array $history = [])
     {
         // Достаем ключ через новую связь: Шаг -> Воронка -> Бот -> AiKey
         $bot = $step->funnel->bot;
@@ -48,6 +48,15 @@ class AiRouterService
             ];
         }
 
+        // --- НОВЫЙ БЛОК: Вливаем историю предыдущего общения на этом шаге ---
+        foreach ($history as $hMsg) {
+            $messages[] = [
+                'role' => $hMsg['role'],
+                'content' => $hMsg['content']
+            ];
+        }
+
+        // Добавляем текущее (самое свежее) сообщение юзера
         $messages[] = ['role' => 'user', 'content' => $userMessage];
 
         try {

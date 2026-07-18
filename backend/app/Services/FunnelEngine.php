@@ -24,7 +24,7 @@ class FunnelEngine
         $funnel = \App\Models\Funnel::findOrFail($funnelId);
         
         if (!$funnel) {
-            Log::warning("Сообщение проигнорировано: нет активной воронки для бота {$botId}");
+            \Illuminate\Support\Facades\Log::warning("Сообщение проигнорировано: нет активной воронки с ID {$funnelId}");
             return "В данный момент бот не настроен.";
         }
 
@@ -32,99 +32,124 @@ class FunnelEngine
         $session = \App\Models\ChatSession::firstOrCreate(
             ['client_id' => $clientId],
             [
-                'funnel_id' => $funnel->id,  // <--- ВОТ ЭТА СТРОЧКА НУЖНА
+                'funnel_id' => $funnel->id,  
                 'bot_id' => $funnel->bot_id, 
                 'user_data' => []
             ]
         );
 
-        // 3. Установка первого шага ИЛИ сброс, если текущий шаг был удален при редактировании
-        // Добавили проверку !$session->currentStep
+        // ЖЕЛЕЗОБЕТОННОЕ извлечение истории (спасает от любых проблем с $casts)
+        $history = $session->history;
+        if (is_string($history)) {
+            $history = json_decode($history, true) ?? [];
+        }
+        if (!is_array($history)) {
+            $history = [];
+        }
+
+        // 3. Установка первого шага ИЛИ жесткий сброс воронки
         if (!$session->current_step_id || !$session->currentStep) { 
             
-            $firstStep = Step::where('funnel_id', $funnel->id)
-                ->whereNotIn('id', Transition::pluck('to_step_id'))
+            $firstStep = \App\Models\Step::where('funnel_id', $funnel->id)
+                ->whereNotIn('id', \App\Models\Transition::pluck('to_step_id'))
                 ->first();
 
             if (!$firstStep) {
                 return "Ошибка воронки: Не найден стартовый этап.";
             }
 
-            // Обновляем сессию: ставим новый стартовый шаг
-            $session->update([
-                'current_step_id' => $firstStep->id,
-                // Опционально: можно сбросить user_data, так как воронка началась заново
-                'user_data' => [] 
-            ]);
+            $session->current_step_id = $firstStep->id;
+            $session->user_data = [];
+            $history = []; // Очищаем историю только если начали воронку с самого нуля
+            $session->history = $history;
+            $session->save();
         }
 
-        // Теперь мы на 100% уверены, что шаг существует
-        $currentStep = $session->currentStep;
+        $currentStep = $session->fresh()->currentStep;
 
         // 4. Отправляем запрос ИИ
-        // --- ЛОГИРУЕМ ТО, ЧТО ОТПРАВЛЯЕМ ---
-        \Illuminate\Support\Facades\Log::info("========== ЗАПРОС К ИИ ==========");
-        \Illuminate\Support\Facades\Log::info("Шаг ID: " . $currentStep->id);
-        \Illuminate\Support\Facades\Log::info("Промпт шага (ai_prompt): " . ($currentStep->ai_prompt ?: 'ПУСТО'));
-        \Illuminate\Support\Facades\Log::info("Сообщение юзера: " . $message);
-        \Illuminate\Support\Facades\Log::info("Текущие user_data: " . json_encode($session->user_data ?? [], JSON_UNESCAPED_UNICODE));
-
-        $aiResponse = $this->aiService->processMessage($currentStep, $message, $session->user_data ?? []);
-
-        // --- ЛОГИРУЕМ ТО, ЧТО ВЕРНУЛОСЬ ---
-        \Illuminate\Support\Facades\Log::info("========== ОТВЕТ ОТ ИИ ==========");
-        \Illuminate\Support\Facades\Log::info("Сырой массив ответа: " . json_encode($aiResponse, JSON_UNESCAPED_UNICODE));
-        \Illuminate\Support\Facades\Log::info("=================================");
+        $aiResponse = $this->aiService->processMessage(
+            $currentStep, 
+            $message, 
+            $session->user_data ?? [],
+            $history
+        );
         
         // 5. Безопасное сохранение переменных
         $currentData = $session->user_data ?? [];
         if (!empty($aiResponse['extracted_data'])) {
-            // Очищаем null значения, чтобы ИИ не затер уже собранные данные
             $extracted = array_filter($aiResponse['extracted_data'], function($val) {
                 return $val !== null && $val !== '';
             });
-            
             $currentData = array_merge($currentData, $extracted);
-            $session->update(['user_data' => $currentData]);
+            $session->user_data = $currentData;
         }
 
-        // 6. ПРОВЕРКА ПРОХОЖДЕНИЯ ШАГА (State Lock)
+        // 6. НАКАПЛИВАЕМ ИСТОРИЮ (теперь она точно не потеряется)
+        $history[] = ['role' => 'user', 'content' => $message];
+        $history[] = ['role' => 'assistant', 'content' => $aiResponse['reply'] ?? ''];
+
+        // Ограничиваем историю 20 последними сообщениями
+        if (count($history) > 20) {
+            $history = array_slice($history, -20);
+        }
+
+        // 7. ПРОВЕРКА ПРОХОЖДЕНИЯ ШАГА (State Lock)
         $isStepCompleted = true;
-        
         if (!empty($currentStep->extracted_variables)) {
             foreach ($currentStep->extracted_variables as $var) {
-                $varName = $var['name'];
-                // Если переменной нет в собранных данных — цель не достигнута
-                if (empty($currentData[$varName])) {
+                if (empty($currentData[$var['name']])) {
                     $isStepCompleted = false;
                     break;
                 }
             }
         }
 
-        // 7. Переход на следующий этап
+        // 8. Переход на следующий этап
         if ($isStepCompleted) {
-            $transitions = Transition::where('from_step_id', $currentStep->id)->get();
-            
-            // ЛОГ ДЛЯ ОТЛАДКИ: сколько стрелок мы нашли?
-            Log::info("Engine: Ищем переходы для шага {$currentStep->id}. Найдено: " . $transitions->count());
+            $transitions = \App\Models\Transition::where('from_step_id', $currentStep->id)->get();
             
             foreach ($transitions as $transition) {
-                Log::info("Engine: Проверяем переход к шагу {$transition->to_step_id}. Условия: " . json_encode($transition->conditions));
-                
                 if ($transition->isEligible($currentData)) {
-                    Log::info("Engine: Условие подошло! Переходим к {$transition->to_step_id}");
                     
-                    $session->update(['current_step_id' => $transition->to_step_id]);
+                    // Обновляем текущий шаг в сессии
+                    $session->current_step_id = $transition->to_step_id;
+                    $session->save(); 
                     
                     $nextStep = $session->fresh()->currentStep; 
-                    $nextStepAiResponse = $this->aiService->processMessage($nextStep, "Приветствие", $session->user_data);
                     
-                    return $nextStepAiResponse['reply']; 
+                    // Берем то, что хотел ответить первый этап
+                    $draftReply = $aiResponse['reply'] ?? '';
+                    
+                    // Скрытый промпт для второго этапа: заставляем его "причесать" текст
+                    $hiddenPrompt = "[СИСТЕМНОЕ СООБЩЕНИЕ]: Произошел автоматический переход на твой этап. Предыдущий этап подготовил такой ответ: '{$draftReply}'. Перепиши этот ответ: оставь из него суть (если там был ответ на вопрос юзера), убери лишние дежурные вопросы вроде 'Чем могу помочь?', и ОБЯЗАТЕЛЬНО плавно переведи тему на свою системную задачу. Ответь от первого лица одним красивым сообщением.";
+                    
+                    $nextStepAiResponse = $this->aiService->processMessage(
+                        $nextStep, 
+                        $hiddenPrompt, 
+                        $currentData, 
+                        $history
+                    );
+                    
+                    $finalReply = $nextStepAiResponse['reply'] ?? '...';
+
+                    // Сохраняем в историю ТОЛЬКО финальный красивый ответ, 
+                    // чтобы бот не путался в своих "черновиках"
+                    $history[] = ['role' => 'assistant', 'content' => $finalReply];
+                    $session->history = $history;
+                    $session->save();
+                    
+                    return $finalReply; 
                 }
             }
         }
 
-        return $aiResponse['reply'] ?? 'Извините, я не понял ваш запрос.';
+        // 9. Если перехода нет (остались на том же шаге) — просто сохраняем текущий ответ
+        $finalReply = $aiResponse['reply'] ?? 'Извините, я не понял ваш запрос.';
+        $history[] = ['role' => 'assistant', 'content' => $finalReply];
+        $session->history = $history;
+        $session->save();
+
+        return $finalReply;
     }
 }

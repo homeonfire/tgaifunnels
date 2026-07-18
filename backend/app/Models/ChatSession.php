@@ -12,6 +12,7 @@ class ChatSession extends Model
     {
         return [
             'user_data' => 'array',
+            'history' => 'array',
         ];
     }
 
