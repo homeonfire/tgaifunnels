@@ -19,6 +19,7 @@ const selectedNode = ref(null)
 const funnelName = ref('Загрузка...')
 const isActive = ref(false)
 const funnelBotId = ref(null)
+const globalContext = ref('') // <--- НОВОЕ ПОЛЕ: ГЛОБАЛЬНЫЙ КОНТЕКСТ
 
 const showSettingsModal = ref(false) // Показывать ли модалку настроек
 const bots = ref([]) // Список ботов с бэкенда
@@ -51,6 +52,9 @@ const loadFunnel = async () => {
     funnelName.value = data.funnel.name
     isActive.value = data.funnel.is_active
     funnelBotId.value = data.funnel.bot_id
+    
+    // Подтягиваем глобальный контекст (если он лежит в боте или в воронке)
+    globalContext.value = data.funnel.bot?.global_context || data.funnel.global_context || ''
 
     // 2. Мапим шаги из БД в узлы Vue Flow (Nodes)
     nodes.value = data.funnel.steps.map(step => ({
@@ -132,6 +136,7 @@ const saveFunnel = async () => {
       name: funnelName.value,
       is_active: isActive.value,
       bot_id: funnelBotId.value,
+      global_context: globalContext.value, // <--- ОТПРАВЛЯЕМ ГЛОБАЛЬНЫЙ КОНТЕКСТ
       nodes: nodes.value,
       edges: enrichedEdges // Отправляем обогащенные связи
     })
@@ -350,7 +355,6 @@ const goBack = () => router.push('/')
           </svg>
         </button>
         <!-- Кнопка тестирования -->
-        <!-- Кнопка тестирования -->
         <button 
           @click="toggleSimulator" 
           class="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
@@ -458,6 +462,17 @@ const goBack = () => router.push('/')
                 🤖 {{ bot.name }}
               </option>
             </select>
+          </div>
+
+          <!-- НОВОЕ ПОЛЕ: ГЛОБАЛЬНЫЙ КОНТЕКСТ -->
+          <div>
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Глобальный контекст бота (Роль, TOV, база знаний)</label>
+            <textarea 
+              v-model="globalContext" 
+              rows="5"
+              placeholder="Пример: Ты веселый менеджер по продажам. Мы находимся в Москве. Общайся на 'ты' и используй эмодзи."
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-colors resize-none"
+            ></textarea>
           </div>
         </div>
         
