@@ -6,23 +6,18 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
-    public function up(): void
+    public function up()
     {
         Schema::table('bots', function (Blueprint $table) {
-            //
+            // Добавляем поле типа text, так как промпт может быть объемным
+            $table->text('global_context')->nullable()->after('name'); 
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
-    public function down(): void
+    public function down()
     {
         Schema::table('bots', function (Blueprint $table) {
-            //
+            $table->dropColumn('global_context');
         });
     }
 };
